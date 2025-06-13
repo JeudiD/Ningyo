@@ -3,6 +3,12 @@
 A Python-powered Discord bot using py-cord.  
 Features slash commands like `/ping` and `/purge`.
 
+### 📌 Note on Hosting
+> The bot runs continuously on the Windows PC as a background service via NSSM, effectively making this PC the host/server.  
+>
+> It is currently configured to work for a **personal Discord server** with setup, commands, and permissions tailored to that environment. However, the codebase is flexible — you can modify the command structure, token, and configuration to deploy it to **other servers or cloud hosting platforms** if needed.
+
+
 ## How to Run
 1. Create a `.env` file with your `DISCORD_TOKEN`.
 2. Run `python watchdog_runner.py` to auto-reload on changes.
@@ -132,3 +138,33 @@ Features slash commands like `/ping` and `/purge`.
 # 20 Improved Code Style and Logging
 - Added proper logging throughout, including bot startup and command errors.
 - Used consistent environment variable handling with dotenv.
+
+# 21 Switched to NSSM for Background Execution
+- We installed NSSM (Non-Sucking Service Manager) to manage the bot as a Windows background service. This lets the bot stay online without needing an open terminal window or user - - interaction after system boot.
+
+# 22 Located the Correct NSSM Path
+- Identified the correct installation path for NSSM:
+- C:\Users\Dale\Downloads\nssm-2.24\nssm-2.24\win64
+
+# 23 Created a Windows Service Using NSSM
+- Used the NSSM GUI to configure a new service:
+- Path: C:\Users\Dale\AppData\Local\Programs\Python\Python313\python.exe
+- Startup Directory: C:\Users\Dale\DiscordBot
+- Arguments: bot.py
+- Named the service something identifiable (e.g. DiscordBotNingyo).
+- This eliminated the need to keep Git Bash, VSCode, or any other terminal open.
+
+# 24 Verified Bot Runs in Background
+- Confirmed that the bot starts automatically and runs silently in the background via Windows Services.
+
+# 25 Retired bot_watcher.py and Task Scheduler
+- Since NSSM handles restarts and running in the background, we no longer need:
+- bot_watcher.py
+- runbot.bat
+- Task Scheduler setup
+
+# 26 Organized and Named Multiple README Files
+- Created multiple README documents in the repo:
+- README.md: General overview of the bot.
+- README_NSSM.md: Documentation specific to background service setup using NSSM.
+- These won’t conflict in GitHub as long as filenames are unique and referenced properly.
