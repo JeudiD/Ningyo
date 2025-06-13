@@ -8,7 +8,11 @@ from discord.ext import commands
 logging.basicConfig(level=logging.INFO)
 
 # Load the .env file
-load_dotenv()
+# load_dotenv() <----this was funky becuz no token was showing
+
+# Load the .env file
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+
 
 # Grab the token
 token = os.getenv("DISCORD_TOKEN")
