@@ -105,4 +105,30 @@ Features slash commands like `/ping` and `/purge`.
 - Enhanced README.md
 - .gitignore (to keep .env and __pycache__ private)
 
+# 15 Fixed Token Location Issue
+- Realized your bot token was not where the code expected it.
+- Moved or fixed the .env file to correctly load DISCORD_TOKEN.
 
+# 16 Added Slash Commands Support  
+- Transitioned from prefix-only commands to using Discord’s slash commands.
+- Added slash command decorators with @bot.slash_command().
+- Implemented ping and purge as slash commands.
+- Added guild_ids=[your_guild_id] to slash commands for faster local testing.
+
+# 17 Tested Slash Commands
+- Verified commands show up in the specified guild/server.
+- Noted global commands take longer to propagate.
+
+# 18 Added Classic Prefix Commands Back
+- Introduced command_prefix="!" on commands.Bot() to support prefix commands alongside slash commands.
+- Created prefix version of purge command using @bot.command().
+- Added ephemeral-like behavior to prefix commands by sending messages with delete_after parameter.
+
+# 19 Added Error Handling to Commands
+- Implemented error handlers, especially for permission errors on purge.
+- Responded to users without permissions gracefully.
+- Logged unexpected errors for debugging.
+
+# 20 Improved Code Style and Logging
+- Added proper logging throughout, including bot startup and command errors.
+- Used consistent environment variable handling with dotenv.
