@@ -73,7 +73,36 @@ Features slash commands like `/ping` and `/purge`.
 - git commit -m "Initial bot setup with slash commands and auto-reload"
 - git push origin master
 
+# 9 Set up automatic bot restart with file changes
+- Created a file originally called watchdog_runner.py, renamed later to bot_watcher.py.
+- Used watchdog library to monitor .py files in the project.
+- When changes are detected, the bot process is killed and restarted automatically.
+- Ensures faster testing without needing to manually stop and relaunch the bot every time.
 
+# 10 Made the watcher cross-platform safe
+- Used:
+- self.process = subprocess.Popen(["python", "bot.py"], cwd=os.path.dirname(__file__))
+- to ensure bot.py runs from the right directory regardless of where it's launched from.
 
+# 11 Logging added
+- Added logging to both bot.py and the watcher file.
+- Helps debug startup issues and tracks when the bot goes online.
+
+# 12 Renamed runner to something clearer
+- Renamed watchdog_runner.py ➜ bot_watcher.py for clarity.
+- No other file references needed changing since it’s run directly, not imported.
+
+# 13 Fixed token not loading issue
+- Ensured .env was in the correct project root.
+- Made sure DISCORD_TOKEN was defined inside .env as:
+- DISCORD_TOKEN=your_token_here
+- Confirmed that load_dotenv() was called before reading the token.
+
+# 14 Pushed updates to GitHub
+- Used git add ., git commit -m, and git push origin master to upload:
+- Updated bot.py
+- bot_watcher.py
+- Enhanced README.md
+- .gitignore (to keep .env and __pycache__ private)
 
 
