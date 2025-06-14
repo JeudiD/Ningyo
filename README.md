@@ -168,3 +168,34 @@ Features slash commands like `/ping` and `/purge`.
 - README.md: General overview of the bot.
 - README_NSSM.md: Documentation specific to background service setup using NSSM.
 - These won’t conflict in GitHub as long as filenames are unique and referenced properly.
+
+# 27 Bot Mention Support for Track Commands
+- Users can now mention bots (e.g. @BotName) instead of manually entering numeric IDs in trackbot and untrackbot commands.
+- Applies to both prefix and slash commands
+- Internally uses discord.User type and accesses .id for tracking
+- Improves usability and minimizes input errors
+
+# 28 Unified Dual Command System (Prefix + Slash)
+- All major bot actions now exist as both traditional prefix commands and modern slash commands:
+- ping, purge, trackbot, untrackbot, listtracked
+- Permissions are enforced consistently
+- Slash commands are registered to a test guild (for fast updates)
+
+# 29 Persistent Bot Tracking with JSON Storage
+- Tracked bot IDs and their delete delay settings are now saved to a JSON file (tracked_bots.json).
+- Survives restarts and service resets
+- Automatically loads data on bot startup
+- Uses json.load() and json.dump() with conversion for proper ID handling
+
+# 30 Auto-Delete Tracked Bot Messages (After Delay)
+- The bot now automatically deletes messages sent by tracked bots after a custom delay.
+- Runs via on_message event
+- Skips deleting its own messages
+- Handles permission errors gracefully
+- Uses asyncio.sleep(delay) to time deletions
+
+# 31 Better Error Handling in Purge Command
+- purge command now includes a proper error handler:
+- Detects and reports missing permissions
+- Logs unknown/unexpected errors to the console
+- Ensures user feedback is clear and non-crashing

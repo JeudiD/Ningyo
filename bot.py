@@ -1,10 +1,10 @@
 import discord
 import os
 import logging
-import json                      # <<< ADDED
+import json
 from dotenv import load_dotenv
 from discord.ext import commands
-import asyncio                   # <<< ADDED
+import asyncio
 
 # Set up logging for info and above
 logging.basicConfig(level=logging.INFO)
@@ -21,18 +21,16 @@ if not token:
 intents = discord.Intents.default()
 intents.message_content = True
 
-# Create bot instance, no command prefix because we use slash commands only
-#bot = commands.Bot(intents=intents) <----we dont need this with the other to support both commands
+# Create bot instance
 bot = commands.Bot(command_prefix="n", intents=intents)
 
-# <<< ADDED: Tracked bots JSON file and dictionary
+# Tracked bots JSON file and dictionary
 TRACKED_BOTS_FILE = "tracked_bots.json"
 
 # Load tracked bots from file if it exists
 if os.path.isfile(TRACKED_BOTS_FILE):
     with open(TRACKED_BOTS_FILE, "r") as f:
         tracked_bots = json.load(f)
-    # json keys are strings, convert to int keys
     tracked_bots = {int(k): v for k, v in tracked_bots.items()}
 else:
     tracked_bots = {}
@@ -45,7 +43,7 @@ def save_tracked_bots():
 async def on_ready():
     logging.info(f"✅ Bot is online as {bot.user}")
 
-#prefix ping
+# Prefix ping
 @bot.command()
 async def ping(ctx):
     await ctx.send("🏓 Pong!")
@@ -55,91 +53,88 @@ async def ping(ctx):
 async def ping(ctx):
     await ctx.respond("🏓 Pong!")
 
-#prefix purge
-@bot.command(name = "purge")
+# Prefix purge
+@bot.command(name="purge")
 @commands.has_permissions(manage_messages=True)
 async def purge(ctx, amount: int):
-    deleted = await ctx.channel.purge(limit=amount + 1)  # +1 to include the command message
+    deleted = await ctx.channel.purge(limit=amount + 1)
     await ctx.send(f"🧹 Deleted {len(deleted) - 1} messages", delete_after=5)
 
-# Slash command: purge - deletes specified number of messages + the command message itself
+# Slash purge
 @bot.slash_command(name="purge", description="Delete a number of messages", guild_ids=[1030603151033769994])
 @commands.has_permissions(manage_messages=True)
 async def purge(ctx, amount: int):
-    deleted = await ctx.channel.purge(limit=amount + 1)  # +1 to include the command message
+    deleted = await ctx.channel.purge(limit=amount + 1)
     await ctx.respond(f"🧹 Deleted {len(deleted) - 1} messages", ephemeral=True)
 
-# Handle missing permissions error for purge command
+# Handle purge permission errors
 @purge.error
 async def purge_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.respond("🚫 You don't have permission to use this command.", ephemeral=True)
     else:
-        # Log unexpected errors
         logging.error(f"Error in purge command: {error}")
         await ctx.respond("❌ An unexpected error occurred.", ephemeral=True)
 
-# <<< ADDED: Commands to track/untrack/list tracked bots, with admin permission
-
+# Prefix command: trackbot with mention support
 @bot.command(name="trackbot")
 @commands.has_permissions(administrator=True)
-async def track_bot(ctx, bot_id: int, delay: int):
-    """Start deleting messages from a bot after delay seconds."""
-    tracked_bots[bot_id] = delay
+async def track_bot(ctx, bot: discord.User, delay: int):
+    tracked_bots[bot.id] = delay
     save_tracked_bots()
-    await ctx.send(f"✅ Now tracking bot ID `{bot_id}` to delete messages after {delay} seconds.")
+    await ctx.send(f"✅ Now tracking bot {bot.mention} to delete messages after {delay} seconds.")
 
+# Prefix command: untrackbot with mention support
 @bot.command(name="untrackbot")
 @commands.has_permissions(administrator=True)
-async def untrack_bot(ctx, bot_id: int):
-    """Stop deleting messages from a tracked bot."""
-    if bot_id in tracked_bots:
-        tracked_bots.pop(bot_id)
+async def untrack_bot(ctx, bot: discord.User):
+    if bot.id in tracked_bots:
+        tracked_bots.pop(bot.id)
         save_tracked_bots()
-        await ctx.send(f"✅ Stopped tracking bot ID `{bot_id}`.")
+        await ctx.send(f"✅ Stopped tracking bot {bot.mention}.")
     else:
-        await ctx.send(f"❌ Bot ID `{bot_id}` is not currently tracked.")
+        await ctx.send(f"❌ Bot {bot.mention} is not currently tracked.")
 
+# Prefix command: listtracked
 @bot.command(name="listtracked")
 @commands.has_permissions(administrator=True)
 async def list_tracked(ctx):
-    """List all tracked bots and their delays."""
     if tracked_bots:
-        msg = "Tracked bots:\n" + "\n".join(f"ID: {bid} — Delay: {delay}s" for bid, delay in tracked_bots.items())
+        msg = "Tracked bots:\n" + "\n".join(f"<@{bid}> — Delay: {delay}s" for bid, delay in tracked_bots.items())
     else:
         msg = "No bots are currently being tracked."
     await ctx.send(msg)
 
-# <<< ADDED: Slash commands for tracking bots
-
+# Slash command: trackbot with mention support
 @bot.slash_command(name="trackbot", description="Start auto-deleting messages from a bot after delay seconds", guild_ids=[1030603151033769994])
 @commands.has_permissions(administrator=True)
-async def trackbot_slash(ctx, bot_id: int, delay: int):
-    tracked_bots[bot_id] = delay
+async def trackbot_slash(ctx, bot: discord.User, delay: int):
+    tracked_bots[bot.id] = delay
     save_tracked_bots()
-    await ctx.respond(f"✅ Now tracking bot ID `{bot_id}` to delete messages after {delay} seconds.")
+    await ctx.respond(f"✅ Now tracking bot {bot.mention} to delete messages after {delay} seconds.")
 
+# Slash command: untrackbot with mention support
 @bot.slash_command(name="untrackbot", description="Stop auto-deleting messages from a tracked bot", guild_ids=[1030603151033769994])
 @commands.has_permissions(administrator=True)
-async def untrackbot_slash(ctx, bot_id: int):
-    if bot_id in tracked_bots:
-        tracked_bots.pop(bot_id)
+async def untrackbot_slash(ctx, bot: discord.User):
+    if bot.id in tracked_bots:
+        tracked_bots.pop(bot.id)
         save_tracked_bots()
-        await ctx.respond(f"✅ Stopped tracking bot ID `{bot_id}`.")
+        await ctx.respond(f"✅ Stopped tracking bot {bot.mention}.")
     else:
-        await ctx.respond(f"❌ Bot ID `{bot_id}` is not currently tracked.")
+        await ctx.respond(f"❌ Bot {bot.mention} is not currently tracked.")
 
+# Slash command: listtracked
 @bot.slash_command(name="listtracked", description="List all tracked bots and their delays", guild_ids=[1030603151033769994])
 @commands.has_permissions(administrator=True)
 async def listtracked_slash(ctx):
     if tracked_bots:
-        msg = "Tracked bots:\n" + "\n".join(f"ID: {bid} — Delay: {delay}s" for bid, delay in tracked_bots.items())
+        msg = "Tracked bots:\n" + "\n".join(f"<@{bid}> — Delay: {delay}s" for bid, delay in tracked_bots.items())
     else:
         msg = "No bots are currently being tracked."
     await ctx.respond(msg)
 
-# <<< ADDED: on_message event to delete messages from tracked bots
-
+# Delete messages from tracked bots after delay
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -161,6 +156,7 @@ async def on_message(message):
 
 # Run the bot
 bot.run(token)
+
 
 
 
