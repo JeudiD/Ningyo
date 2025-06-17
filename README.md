@@ -199,3 +199,9 @@ Features slash commands like `/ping` and `/purge`.
 - Detects and reports missing permissions
 - Logs unknown/unexpected errors to the console
 - Ensures user feedback is clear and non-crashing
+
+# 32 Added Discord Bot Presence (Listening Status)
+- Introduced a presence update on bot startup using bot.change_presence().
+- Bot now shows "Listening to Lofi Chill Mix – ChilledCow" as its status, making it feel more alive and interactive.
+- Used discord.Activity with ActivityType.listening to simulate a user-like listening experience.
+- Presence logic placed inside on_ready() event for automatic activation when the bot connects.

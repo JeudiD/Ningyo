@@ -39,9 +39,14 @@ def save_tracked_bots():
     with open(TRACKED_BOTS_FILE, "w") as f:
         json.dump(tracked_bots, f)
 
+#tells u in terminal if bot is online and now gives bot status
 @bot.event
 async def on_ready():
     logging.info(f"✅ Bot is online as {bot.user}")
+    await bot.change_presence(
+        activity=discord.Activity(type=discord.ActivityType.listening, name="RIDE ON SHOOTING STAR"),
+        status=discord.Status.online
+    )
 
 # Prefix ping
 @bot.command()
