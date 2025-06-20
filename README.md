@@ -205,3 +205,53 @@ Features slash commands like `/ping` and `/purge`.
 - Bot now shows "Listening to Lofi Chill Mix – ChilledCow" as its status, making it feel more alive and interactive.
 - Used discord.Activity with ActivityType.listening to simulate a user-like listening experience.
 - Presence logic placed inside on_ready() event for automatic activation when the bot connects.
+
+# 33 Prepared Project Environment
+- Installed core libraries: discord.py, yt-dlp
+- Installed FFmpeg for real-time audio streaming
+- Created a basic bot skeleton using discord.ext.commands
+
+# 34 Implemented Voice Channel Support
+- Added !join command for joining the user’s current voice channel
+- Ensured the bot could move between channels if already connected
+- Tested functionality live on Discord server
+
+# 35 Verified FFmpeg Installation and PATH Configuration
+- Confirmed FFmpeg was installed via ffmpeg -version
+- Added the correct bin directory to Windows User PATH:
+- C:\Users\Dale\Downloads\ffmpeg-7.1.1-essentials_build\bin
+- Restarted VSCode to ensure the PATH change was recognized in terminal
+
+# 36 Diagnosed and Resolved Playback Errors
+- Investigated ClientException: ffmpeg was not found
+- Verified that FFmpeg was callable from both PowerShell and VSCode
+- Confirmed that FFmpeg was usable via discord.FFmpegOpusAudio.from_probe()
+
+# 37 Integrated yt-dlp for YouTube Playback
+- Added yt_dlp to project dependencies
+- Configured YoutubeDL with default_search: 'auto' to support links and search queries
+- Implemented fallback logic for full stream metadata extraction
+- Set noplaylist = True and extract_flat = False to avoid playlist issues
+
+# 38 Implemented Working Audio Queue and Playback System
+- Built song_queue per guild to manage music tracks
+- Added play_next() coroutine to continue playback automatically
+- Used FFmpegOpusAudio.from_probe() for streaming without file downloads
+- Enabled both !play (prefix) and /play (slash) command support
+
+# 39 Improved Error Handling and Logging
+- Wrapped yt-dlp and playback calls in try/except blocks
+- Configured logging to INFO level for Discord events and bot actions
+- Handled voice join failures, queue underruns, and yt-dlp extraction issues
+
+# 40 Fixed yt-dlp Extraction Options
+- Removed extract_flat: 'in_playlist' and replaced with extract_flat: False
+- Ensured extracted info includes url needed for FFmpeg streaming
+
+# 41 Confirmed Working Music Playback Flow
+- Final test verified that bot can:
+- Join VC
+- Play by name or link
+- Queue multiple songs
+- Stream YouTube audio seamlessly
+- Example: !play 20 mins by Uzi now works using yt-dlp's search, no direct link required

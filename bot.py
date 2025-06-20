@@ -2,22 +2,47 @@ import discord
 import os
 import logging
 import json
+import yt_dlp
 from dotenv import load_dotenv
 from discord.ext import commands
+from yt_dlp import YoutubeDL
 import asyncio
+from discord import FFmpegPCMAudio  # <-- Added import here
 
 # Set up logging for info and above
-logging.basicConfig(level=logging.INFO)
+logging.getLogger('discord').setLevel(logging.INFO)
+logging.getLogger('discord').propagate = False
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Music bot variables
+song_queue = []
+is_playing = False
+current_voice_client = None
+
+# ffmpeg and yt-dlp setup
+ydl_opts = {
+    'format': 'bestaudio/best',
+    'quiet': True,
+    'no_warnings': True,
+    'default_search': 'auto',
+    'extract_flat': False  # or remove this line entirely
+}
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn'
+}
+ydl = YoutubeDL(ydl_opts)
+
 
 # Grab the bot token from environment variables
 token = os.getenv("DISCORD_TOKEN")
 if not token:
     raise ValueError("🚨 DISCORD_TOKEN not found in environment variables.")
 
-# Set up intents - message_content is required for reading message content in some commands
+# Set up intents - message_content required for reading message content in prefix commands
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -39,7 +64,7 @@ def save_tracked_bots():
     with open(TRACKED_BOTS_FILE, "w") as f:
         json.dump(tracked_bots, f)
 
-#tells u in terminal if bot is online and now gives bot status
+# On ready event
 @bot.event
 async def on_ready():
     logging.info(f"✅ Bot is online as {bot.user}")
@@ -47,60 +72,45 @@ async def on_ready():
         activity=discord.Activity(type=discord.ActivityType.listening, name="RIDE ON SHOOTING STAR"),
         status=discord.Status.online
     )
+    await bot.tree.sync()  # Sync slash commands
 
-# Prefix ping
+# PREFIX COMMANDS
+
 @bot.command()
 async def ping(ctx):
     await ctx.send("🏓 Pong!")
 
-# Slash command: ping
-@bot.slash_command(name="ping", description="Check if the bot is alive", guild_ids=[1030603151033769994])
-async def ping(ctx):
-    await ctx.respond("🏓 Pong!")
-
-# Prefix purge
 @bot.command(name="purge")
 @commands.has_permissions(manage_messages=True)
 async def purge(ctx, amount: int):
     deleted = await ctx.channel.purge(limit=amount + 1)
     await ctx.send(f"🧹 Deleted {len(deleted) - 1} messages", delete_after=5)
 
-# Slash purge
-@bot.slash_command(name="purge", description="Delete a number of messages", guild_ids=[1030603151033769994])
-@commands.has_permissions(manage_messages=True)
-async def purge(ctx, amount: int):
-    deleted = await ctx.channel.purge(limit=amount + 1)
-    await ctx.respond(f"🧹 Deleted {len(deleted) - 1} messages", ephemeral=True)
-
-# Handle purge permission errors
 @purge.error
 async def purge_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
-        await ctx.respond("🚫 You don't have permission to use this command.", ephemeral=True)
+        await ctx.send("🚫 You don't have permission to use this command.")
     else:
         logging.error(f"Error in purge command: {error}")
-        await ctx.respond("❌ An unexpected error occurred.", ephemeral=True)
+        await ctx.send("❌ An unexpected error occurred.")
 
-# Prefix command: trackbot with mention support
 @bot.command(name="trackbot")
 @commands.has_permissions(administrator=True)
-async def track_bot(ctx, bot: discord.User, delay: int):
-    tracked_bots[bot.id] = delay
+async def track_bot(ctx, bot_user: discord.User, delay: int):
+    tracked_bots[bot_user.id] = delay
     save_tracked_bots()
-    await ctx.send(f"✅ Now tracking bot {bot.mention} to delete messages after {delay} seconds.")
+    await ctx.send(f"✅ Now tracking bot {bot_user.mention} to delete messages after {delay} seconds.")
 
-# Prefix command: untrackbot with mention support
 @bot.command(name="untrackbot")
 @commands.has_permissions(administrator=True)
-async def untrack_bot(ctx, bot: discord.User):
-    if bot.id in tracked_bots:
-        tracked_bots.pop(bot.id)
+async def untrack_bot(ctx, bot_user: discord.User):
+    if bot_user.id in tracked_bots:
+        tracked_bots.pop(bot_user.id)
         save_tracked_bots()
-        await ctx.send(f"✅ Stopped tracking bot {bot.mention}.")
+        await ctx.send(f"✅ Stopped tracking bot {bot_user.mention}.")
     else:
-        await ctx.send(f"❌ Bot {bot.mention} is not currently tracked.")
+        await ctx.send(f"❌ Bot {bot_user.mention} is not currently tracked.")
 
-# Prefix command: listtracked
 @bot.command(name="listtracked")
 @commands.has_permissions(administrator=True)
 async def list_tracked(ctx):
@@ -110,36 +120,8 @@ async def list_tracked(ctx):
         msg = "No bots are currently being tracked."
     await ctx.send(msg)
 
-# Slash command: trackbot with mention support
-@bot.slash_command(name="trackbot", description="Start auto-deleting messages from a bot after delay seconds", guild_ids=[1030603151033769994])
-@commands.has_permissions(administrator=True)
-async def trackbot_slash(ctx, bot: discord.User, delay: int):
-    tracked_bots[bot.id] = delay
-    save_tracked_bots()
-    await ctx.respond(f"✅ Now tracking bot {bot.mention} to delete messages after {delay} seconds.")
+# EVENT TO DELETE MESSAGES FROM TRACKED BOTS AFTER DELAY
 
-# Slash command: untrackbot with mention support
-@bot.slash_command(name="untrackbot", description="Stop auto-deleting messages from a tracked bot", guild_ids=[1030603151033769994])
-@commands.has_permissions(administrator=True)
-async def untrackbot_slash(ctx, bot: discord.User):
-    if bot.id in tracked_bots:
-        tracked_bots.pop(bot.id)
-        save_tracked_bots()
-        await ctx.respond(f"✅ Stopped tracking bot {bot.mention}.")
-    else:
-        await ctx.respond(f"❌ Bot {bot.mention} is not currently tracked.")
-
-# Slash command: listtracked
-@bot.slash_command(name="listtracked", description="List all tracked bots and their delays", guild_ids=[1030603151033769994])
-@commands.has_permissions(administrator=True)
-async def listtracked_slash(ctx):
-    if tracked_bots:
-        msg = "Tracked bots:\n" + "\n".join(f"<@{bid}> — Delay: {delay}s" for bid, delay in tracked_bots.items())
-    else:
-        msg = "No bots are currently being tracked."
-    await ctx.respond(msg)
-
-# Delete messages from tracked bots after delay
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
@@ -159,8 +141,167 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+# MUSIC PREFIX COMMANDS
+@bot.command(name="join")
+async def join(ctx):
+    global current_voice_client
+    if ctx.author.voice is None:
+        await ctx.send("You're not in a voice channel.")
+        return
+    channel = ctx.author.voice.channel
+    if not current_voice_client or not current_voice_client.is_connected():
+        current_voice_client = await channel.connect()
+    else:
+        await current_voice_client.move_to(channel)
+    await ctx.send(f"Joined {channel.name}")
+
+@bot.command(name="play")
+async def play(ctx, *, search: str):
+    global current_voice_client, song_queue, is_playing
+
+    if ctx.author.voice is None:
+        await ctx.send("Join a voice channel first.")
+        return
+
+    if not current_voice_client or not current_voice_client.is_connected():
+        current_voice_client = await ctx.author.voice.channel.connect()
+    elif current_voice_client.channel != ctx.author.voice.channel:
+        await current_voice_client.move_to(ctx.author.voice.channel)
+
+    try:
+        info = ydl.extract_info(search, download=False)
+        if 'entries' in info:
+            info = info['entries'][0]
+        url = info.get('url') or info.get('webpage_url')
+        title = info.get('title', 'Unknown Title')
+        song_queue.append({'url': url, 'title': title})
+        await ctx.send(f"Queued: {title}")
+    except Exception as e:
+        await ctx.send(f"Error: {e}")
+        return
+
+    if not is_playing:
+        await play_next(ctx)
+
+@bot.command(name="skip")
+async def skip(ctx):
+    global current_voice_client
+    if current_voice_client and current_voice_client.is_playing():
+        current_voice_client.stop()
+        await ctx.send("Skipped.")
+    else:
+        await ctx.send("Nothing is playing.")
+
+@bot.command(name="stop")
+async def stop(ctx):
+    global current_voice_client, song_queue, is_playing
+    song_queue.clear()
+    is_playing = False
+    if current_voice_client:
+        current_voice_client.stop()
+        await current_voice_client.disconnect()
+        current_voice_client = None
+    await ctx.send("Stopped and disconnected.")
+
+# MUSIC SLASH COMMANDS
+
+@bot.tree.command(name="join", description="Join your voice channel")
+async def join_slash(interaction: discord.Interaction):
+    global current_voice_client
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message("You're not in a voice channel.", ephemeral=True)
+        return
+    channel = interaction.user.voice.channel
+    if not current_voice_client or not current_voice_client.is_connected():
+        current_voice_client = await channel.connect()
+    else:
+        await current_voice_client.move_to(channel)
+    await interaction.response.send_message(f"Joined {channel.name}")
+
+@bot.tree.command(name="play", description="Play a song from YouTube or search")
+async def play_slash(interaction: discord.Interaction, query: str):
+    global current_voice_client, song_queue, is_playing
+
+    await interaction.response.defer()
+
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.followup.send("You're not in a voice channel.")
+        return
+
+    if not current_voice_client or not current_voice_client.is_connected():
+        current_voice_client = await interaction.user.voice.channel.connect()
+    elif current_voice_client.channel != interaction.user.voice.channel:
+        await current_voice_client.move_to(interaction.user.voice.channel)
+
+    try:
+        info = ydl.extract_info(query, download=False)
+        if 'entries' in info:
+            info = info['entries'][0]
+        url = info.get('url') or info.get('webpage_url')
+        title = info.get('title', 'Unknown Title')
+        song_queue.append({'url': url, 'title': title})
+        await interaction.followup.send(f"Queued: {title}")
+    except Exception as e:
+        await interaction.followup.send(f"Error: {e}")
+        return
+
+    if not is_playing:
+        await play_next(interaction)
+
+@bot.tree.command(name="skip", description="Skip the current song")
+async def skip_slash(interaction: discord.Interaction):
+    global current_voice_client
+    if current_voice_client and current_voice_client.is_playing():
+        current_voice_client.stop()
+        await interaction.response.send_message("Skipped.")
+    else:
+        await interaction.response.send_message("Nothing is playing.")
+
+@bot.tree.command(name="stop", description="Stop playback and disconnect")
+async def stop_slash(interaction: discord.Interaction):
+    global current_voice_client, song_queue, is_playing
+    song_queue.clear()
+    is_playing = False
+    if current_voice_client:
+        current_voice_client.stop()
+        await current_voice_client.disconnect()
+        current_voice_client = None
+    await interaction.response.send_message("Stopped and disconnected.")
+
+# Shared music playback logic with fix applied
+async def play_next(ctx_or_interaction):
+    global is_playing, song_queue, current_voice_client
+
+    if len(song_queue) == 0:
+        is_playing = False
+        return
+
+    is_playing = True
+    song = song_queue.pop(0)
+    url = song['url']
+    title = song['title']
+
+    source = FFmpegPCMAudio(url, **FFMPEG_OPTIONS)  # Changed here
+
+    # Send now playing message depending on context type
+    if hasattr(ctx_or_interaction, 'send'):  # prefix context
+        await ctx_or_interaction.send(f"Now playing: {title}")
+    else:  # slash interaction
+        await ctx_or_interaction.followup.send(f"Now playing: {title}")
+
+    def after_playing(error):
+        fut = asyncio.run_coroutine_threadsafe(play_next(ctx_or_interaction), bot.loop)
+        try:
+            fut.result()
+        except Exception as e:
+            print(f"Error in after_playing: {e}")
+
+    current_voice_client.play(source, after=after_playing)
+
 # Run the bot
 bot.run(token)
+
+
 
 
 
