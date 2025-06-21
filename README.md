@@ -255,3 +255,38 @@ Features slash commands like `/ping` and `/purge`.
 - Queue multiple songs
 - Stream YouTube audio seamlessly
 - Example: !play 20 mins by Uzi now works using yt-dlp's search, no direct link required
+
+# 42 Added Pause and Resume Commands
+- Implemented basic pause/resume for the music player
+- Allows users to control playback flow during songs
+
+# 43 Added Skip and Stop Commands
+- Skip stops current song and moves to next
+- Stop clears queue, disconnects bot, and cancels disconnect timer
+
+# 44 Added Auto-Disconnect Logic
+- Bot auto-disconnects if alone in voice channel for 5 minutes.
+- Checks every 60 seconds.
+- Prevents bot staying in empty VC forever.
+
+# 45 Implemented Wipe Script for Global Slash Commands
+- Created separate script to delete all global slash commands quickly.
+- Used Discord REST API with requests.
+- Environment variables for token and app ID.
+- Ensured wipe worked by testing commands disappeared on Discord client.
+
+# 46 Added Queue Command (Prefix and Slash)
+- Show current queue of songs with titles listed.
+- Useful to check what’s next in line.
+
+# 47 Added Robust Music Playback Logic
+- Used yt-dlp to search YouTube and SoundCloud.
+- Queue management with async playback.
+- FFmpeg audio streaming with reconnect options.
+- After playback ends, automatically plays next song in queue.
+- Supports URL or search query input.
+
+# 48 Added Detailed Logging and Error Handling
+- Logging level set to INFO for important events.
+- Catches exceptions in YouTube/SoundCloud info extraction.
+- Logs warnings when failures occur.
