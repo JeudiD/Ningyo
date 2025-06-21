@@ -290,3 +290,21 @@ Features slash commands like `/ping` and `/purge`.
 - Logging level set to INFO for important events.
 - Catches exceptions in YouTube/SoundCloud info extraction.
 - Logs warnings when failures occur.
+
+# 49 Persistent UI for Music Controls and Queue Pagination
+- Added MusicControls view with buttons for Pause, Resume, Skip, Stop, Repeat Mode, and Volume adjustments, providing ephemeral user feedback.
+- QueuePagination view allows paginated display of the song queue with navigation restricted to the requester. Both views support interactive control without needing to resend.
+
+# 50 Playback Enhancements with Repeat and Volume Control
+- Now Playing message dynamically updates with song info, requester, repeat mode, and volume.
+- Repeat modes (Off, Repeat One, Repeat All) controlled via UI button.
+- Volume adjustable between 0.0 and 1.0 through UI, integrated into playback and reflected in embeds.
+
+# 51 Improved Playback Management
+- play_next handles queue management respecting repeat mode, includes error handling, and uses FFmpeg reconnect options for stability.
+
+# 52 Slash Commands Aligned with Prefix Commands, Emphasizing Ephemeral Responses
+- Slash commands replicate prefix functionality but emphasize ephemeral responses to reduce channel clutter, improving user experience.
+
+# 53 Miscellaneous Improvements
+- Startup logging, error handling, and clean code structure throughout.
