@@ -308,3 +308,42 @@ Features slash commands like `/ping` and `/purge`.
 
 # 53 Miscellaneous Improvements
 - Startup logging, error handling, and clean code structure throughout.
+
+# 54 Opus Library Setup & Voice Channel Join Fix
+- Problem:
+Bot was able to join voice channels initially but started joining and immediately leaving afterward. This was due to missing or improperly loaded Opus codec, required by Discord voice to encode/decode audio.
+
+- Cause:
+The bot did not have the Opus dynamic library (e.g., libopus.dll) available or properly loaded.
+Without Opus, voice connections become unstable and drop.
+
+- Solution Steps:
+Download the prebuilt Opus DLL for Windows 64-bit from a trusted source:
+Example trusted link:
+https://dsharpplus.emzi0767.com/natives/vnext_natives_win32_x64.zip
+(Inside this archive, libopus.dll is included)
+
+- Extract libopus.dll and place it in your bot’s root directory (or the directory where your bot script runs).
+- Rename libopus.dll to opus.dll (optional but recommended for direct loading).
+- In your Python bot code (bot.py), add the following at the top (before voice connection attempts):
+python
+Copy
+Edit
+import discord
+if not discord.opus.is_loaded():
+    discord.opus.load_opus("opus.dll")
+
+- Confirm the bot loads Opus correctly by checking the log for:
+- Opus loaded: True
+- Run your bot. It should now join voice channels without immediately leaving.
+
+- Additional Resources:
+For more info on installing libopus, see:
+https://github.com/shardlab/discordrb/wiki/Installing-libopus?utm_source=chatgpt.com
+
+- Additional Notes:
+Make sure your system architecture matches the DLL (64-bit Windows).
+Placing opus.dll in the same folder as your bot script is the simplest way to ensure it loads properly.
+This fix prevents voice connection issues related to missing Opus codec.
+
+- (PS: Opus is a prebuilt native library, in my experience it was very hard to find an official/trusted (usually because the all the links were broken or gone) one so I hope this helps someone.)

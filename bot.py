@@ -8,6 +8,13 @@ from discord.ext import commands
 import asyncio
 from discord import FFmpegPCMAudio, app_commands
 
+
+dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
+if not discord.opus.is_loaded():
+    discord.opus.load_opus(dll_path)
+
+print("Opus loaded:", discord.opus.is_loaded())
+
 # Logging setup
 logging.getLogger('discord').setLevel(logging.INFO)
 logging.getLogger('discord').propagate = False
