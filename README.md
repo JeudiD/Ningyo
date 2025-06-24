@@ -312,17 +312,14 @@ Features slash commands like `/ping` and `/purge`.
 # 54 Opus Library Setup & Voice Channel Join Fix
 - Problem:
 Bot was able to join voice channels initially but started joining and immediately leaving afterward. This was due to missing or improperly loaded Opus codec, required by Discord voice to encode/decode audio.
-
 - Cause:
 The bot did not have the Opus dynamic library (e.g., libopus.dll) available or properly loaded.
 Without Opus, voice connections become unstable and drop.
-
 - Solution Steps:
 Download the prebuilt Opus DLL for Windows 64-bit from a trusted source:
 Example trusted link:
 https://dsharpplus.emzi0767.com/natives/vnext_natives_win32_x64.zip
 (Inside this archive, libopus.dll is included)
-
 - Extract libopus.dll and place it in your bot’s root directory (or the directory where your bot script runs).
 - Rename libopus.dll to opus.dll (optional but recommended for direct loading).
 - In your Python bot code (bot.py), add the following at the top (before voice connection attempts):
@@ -332,18 +329,42 @@ Edit
 import discord
 if not discord.opus.is_loaded():
     discord.opus.load_opus("opus.dll")
-
 - Confirm the bot loads Opus correctly by checking the log for:
 - Opus loaded: True
 - Run your bot. It should now join voice channels without immediately leaving.
-
 - Additional Resources:
 For more info on installing libopus, see:
 https://github.com/shardlab/discordrb/wiki/Installing-libopus?utm_source=chatgpt.com
-
 - Additional Notes:
 Make sure your system architecture matches the DLL (64-bit Windows).
 Placing opus.dll in the same folder as your bot script is the simplest way to ensure it loads properly.
 This fix prevents voice connection issues related to missing Opus codec.
-
 - (PS: Opus is a prebuilt native library, in my experience it was very hard to find an official/trusted (usually because the all the links were broken or gone) one so I hope this helps someone.)
+
+# 55 Unified Stop Command Handler
+- Created a shared stop_handler(ctx_or_interaction) function to eliminate duplicate logic between stop prefix and slash commands.
+- Ensured consistent bot disconnection and cleanup whether the command is triggered via text or slash.
+
+# 56 Context-Aware Response Helper
+- Added send_response() to abstract whether to use ctx.send() or interaction.response.send_message() (or followups).
+- Applied this to all relevant bot responses (e.g., stop, play errors) to reduce repeated logic and handle edge cases like InteractionResponded.
+
+# 57 Fixed Global Declaration Error
+- Resolved SyntaxError caused by global current_player_message being declared after its first use in play_next().
+- Moved all global declarations to the top of affected functions (especially play_next()).
+
+# 58 Slash + Prefix Parity for Playback Commands
+- Verified that play, pause, resume, skip, and stop now work seamlessly as both prefix and slash commands.
+- Ensured all commands report success/failure messages using send_response().
+
+# 59 Auto-Delete System Confirmed Working
+- Confirmed on_message event and JSON save/load for tracked bots are intact.
+- Messages from specified bot IDs are still auto-deleted after the configured delay.
+
+# 60 Now Playing Embed Reliability
+- Fixed fallback logic in play_next() to send the Now Playing embed even if the context is missing or voice channel isn’t initialized.
+- Ensured current_player_message is updated and reused appropriately.
+
+# 61 Code Structure + Cleanup
+- Reduced duplicate code, cleaned up logic flow in play_next, handle_queue_and_play, and UI button callbacks.
+- Removed legacy inline code for stop() that was clashing with unified handler.
