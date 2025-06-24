@@ -8,7 +8,6 @@ from discord.ext import commands
 import asyncio
 from discord import FFmpegPCMAudio, app_commands
 
-
 dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
 if not discord.opus.is_loaded():
     discord.opus.load_opus(dll_path)
@@ -72,6 +71,186 @@ FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconne
 def repeat_mode_to_str(mode: int) -> str:
     return {0: "Off", 1: "Repeat One", 2: "Repeat All"}.get(mode, "Unknown")
 
+async def send_response(ctx_or_interaction, message, ephemeral=False):
+    """
+    Sends message depending on context:
+    - ctx (prefix command): ctx.send()
+    - interaction (slash or button): response.send_message or followup.send_message
+    """
+    if hasattr(ctx_or_interaction, 'send'):
+        await ctx_or_interaction.send(message)
+    else:
+        try:
+            await ctx_or_interaction.response.send_message(message, ephemeral=ephemeral)
+        except discord.InteractionResponded:
+            await ctx_or_interaction.followup.send(message, ephemeral=ephemeral)
+
+# Unified command handlers
+
+async def ping_handler(ctx_or_interaction):
+    await send_response(ctx_or_interaction, "🏓 Pong!", ephemeral=True)
+
+async def pause_handler(ctx_or_interaction):
+    global current_voice_client
+    if current_voice_client and current_voice_client.is_playing():
+        current_voice_client.pause()
+        await send_response(ctx_or_interaction, "Paused.", ephemeral=True)
+        await update_now_playing_message()
+    else:
+        await send_response(ctx_or_interaction, "Nothing is playing.", ephemeral=True)
+
+async def resume_handler(ctx_or_interaction):
+    global current_voice_client
+    if current_voice_client and current_voice_client.is_paused():
+        current_voice_client.resume()
+        await send_response(ctx_or_interaction, "Resumed.", ephemeral=True)
+        await update_now_playing_message()
+    else:
+        await send_response(ctx_or_interaction, "Nothing is paused.", ephemeral=True)
+
+async def skip_handler(ctx_or_interaction):
+    global current_voice_client
+    if current_voice_client and current_voice_client.is_playing():
+        current_voice_client.stop()
+        await send_response(ctx_or_interaction, "Skipped.", ephemeral=True)
+    else:
+        await send_response(ctx_or_interaction, "Nothing is playing.", ephemeral=True)
+
+async def stop_handler(ctx_or_interaction):
+    global song_queue, is_playing, current_voice_client, disconnect_task, disconnect_timer, current_player_message, progress_task
+
+    song_queue.clear()
+    is_playing = False
+
+    if current_voice_client:
+        current_voice_client.stop()
+        await current_voice_client.disconnect()
+        current_voice_client = None
+
+    if disconnect_task and not disconnect_task.done():
+        disconnect_task.cancel()
+    disconnect_timer = 0
+
+    if current_player_message:
+        try:
+            await current_player_message.delete()
+        except:
+            pass
+        current_player_message = None
+
+    if progress_task:
+        progress_task.cancel()
+        progress_task = None
+
+    await send_response(ctx_or_interaction, "Stopped and disconnected.", ephemeral=True)
+
+async def join_handler(ctx_or_interaction):
+    channel = None
+    if hasattr(ctx_or_interaction, 'author'):
+        if ctx_or_interaction.author.voice:
+            channel = ctx_or_interaction.author.voice.channel
+    elif hasattr(ctx_or_interaction, 'user'):
+        if ctx_or_interaction.user.voice:
+            channel = ctx_or_interaction.user.voice.channel
+
+    if channel:
+        global current_voice_client
+        current_voice_client = await channel.connect()
+        await send_response(ctx_or_interaction, f"Connected to {channel.name}.", ephemeral=True)
+    else:
+        await send_response(ctx_or_interaction, "You must be in a voice channel.", ephemeral=True)
+
+async def leave_handler(ctx_or_interaction):
+    global current_voice_client
+    if current_voice_client:
+        await current_voice_client.disconnect()
+        current_voice_client = None
+        await send_response(ctx_or_interaction, "Disconnected.", ephemeral=True)
+    else:
+        await send_response(ctx_or_interaction, "Not connected.", ephemeral=True)
+
+async def queue_handler(ctx_or_interaction):
+    if not song_queue:
+        await send_response(ctx_or_interaction, "The queue is empty.", ephemeral=True)
+        return
+
+    pages = []
+    per_page = 10
+    for i in range(0, len(song_queue), per_page):
+        page_songs = song_queue[i:i+per_page]
+        desc = ""
+        for j, song in enumerate(page_songs, start=i+1):
+            desc += f"**{j}.** [{song['title']}]({song['webpage_url']}) - requested by {song['requester'].mention if song['requester'] else 'unknown'}\n"
+        pages.append(desc)
+
+    embed = discord.Embed(title=f"Queue (Page 1/{len(pages)})", description=pages[0], color=discord.Color.green())
+    view = QueuePagination(ctx_or_interaction, pages)
+
+    # Send embed + view differently based on context
+    if hasattr(ctx_or_interaction, 'send'):
+        await ctx_or_interaction.send(embed=embed, view=view)
+    else:
+        try:
+            await ctx_or_interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        except discord.InteractionResponded:
+            await ctx_or_interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+async def purge_handler(ctx_or_interaction, amount: int):
+    if not hasattr(ctx_or_interaction, 'guild') or not ctx_or_interaction.guild:
+        await send_response(ctx_or_interaction, "This command must be used in a guild.", ephemeral=True)
+        return
+
+    perms = None
+    if hasattr(ctx_or_interaction, 'author'):
+        perms = ctx_or_interaction.author.guild_permissions
+    elif hasattr(ctx_or_interaction, 'user'):
+        perms = ctx_or_interaction.user.guild_permissions
+
+    if not perms or not perms.manage_messages:
+        await send_response(ctx_or_interaction, "You don't have permission to manage messages.", ephemeral=True)
+        return
+
+    if amount < 1 or amount > 100:
+        await send_response(ctx_or_interaction, "Please specify an amount between 1 and 100.", ephemeral=True)
+        return
+
+    # Defer for interactions
+    if not hasattr(ctx_or_interaction, 'send'):
+        await ctx_or_interaction.response.defer(ephemeral=True)
+
+    deleted = await ctx_or_interaction.channel.purge(limit=amount + 1)
+    await send_response(ctx_or_interaction, f"Deleted {len(deleted)-1} messages.", ephemeral=True)
+
+async def play_handler(ctx_or_interaction, search: str):
+    await handle_queue_and_play(ctx_or_interaction, search)
+
+# Your existing handle_queue_and_play function here unchanged
+# (Add your pasted function below or import it)
+
+# Repeat button cycle handler
+async def repeat_mode_handler(ctx_or_interaction):
+    global repeat_mode
+    repeat_mode = (repeat_mode + 1) % 3
+    await send_response(ctx_or_interaction, f"Repeat mode set to: {repeat_mode_to_str(repeat_mode)}", ephemeral=True)
+    await update_now_playing_message()
+
+# Volume up/down handlers
+async def volume_up_handler(ctx_or_interaction):
+    global volume
+    volume = min(volume + 0.1, 1.0)
+    if current_voice_client and current_voice_client.source:
+        current_voice_client.source.volume = volume
+    await send_response(ctx_or_interaction, f"Volume: {int(volume * 100)}%", ephemeral=True)
+    await update_now_playing_message()
+
+async def volume_down_handler(ctx_or_interaction):
+    global volume
+    volume = max(volume - 0.1, 0.0)
+    if current_voice_client and current_voice_client.source:
+        current_voice_client.source.volume = volume
+    await send_response(ctx_or_interaction, f"Volume: {int(volume * 100)}%", ephemeral=True)
+    await update_now_playing_message()
+
 # Views with persistent buttons (custom_id set for persistence)
 class MusicControls(discord.ui.View):
     def __init__(self):
@@ -79,64 +258,36 @@ class MusicControls(discord.ui.View):
 
     @discord.ui.button(label="⏸️ Pause", style=discord.ButtonStyle.primary, custom_id="pause_button")
     async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if current_voice_client and current_voice_client.is_playing():
-            current_voice_client.pause()
-            await interaction.response.send_message("Paused.", ephemeral=True)
-            await update_now_playing_message()
-        else:
-            await interaction.response.send_message("Nothing is playing.", ephemeral=True)
+        await pause_handler(interaction)
 
     @discord.ui.button(label="▶️ Resume", style=discord.ButtonStyle.success, custom_id="resume_button")
     async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if current_voice_client and current_voice_client.is_paused():
-            current_voice_client.resume()
-            await interaction.response.send_message("Resumed.", ephemeral=True)
-            await update_now_playing_message()
-        else:
-            await interaction.response.send_message("Nothing is paused.", ephemeral=True)
+        await resume_handler(interaction)
 
     @discord.ui.button(label="⏭️ Skip", style=discord.ButtonStyle.secondary, custom_id="skip_button")
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if current_voice_client and current_voice_client.is_playing():
-            current_voice_client.stop()
-            await interaction.response.send_message("Skipped.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Nothing is playing.", ephemeral=True)
+        await skip_handler(interaction)
 
     @discord.ui.button(label="⏹️ Stop", style=discord.ButtonStyle.danger, custom_id="stop_button")
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await stop(interaction)
-        await interaction.response.send_message("Stopped and disconnected.", ephemeral=True)
+        await stop_handler(interaction)
 
     @discord.ui.button(label="🔁 Repeat Mode", style=discord.ButtonStyle.primary, custom_id="repeat_button")
     async def repeat_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global repeat_mode
-        repeat_mode = (repeat_mode + 1) % 3
-        await interaction.response.send_message(f"Repeat mode set to: {repeat_mode_to_str(repeat_mode)}", ephemeral=True)
-        await update_now_playing_message()
+        await repeat_mode_handler(interaction)
 
     @discord.ui.button(label="🔊 Vol +", style=discord.ButtonStyle.secondary, custom_id="vol_up_button")
     async def volume_up(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global volume
-        volume = min(volume + 0.1, 1.0)
-        if current_voice_client and current_voice_client.source:
-            current_voice_client.source.volume = volume
-        await interaction.response.send_message(f"Volume: {int(volume * 100)}%", ephemeral=True)
-        await update_now_playing_message()
+        await volume_up_handler(interaction)
 
     @discord.ui.button(label="🔉 Vol -", style=discord.ButtonStyle.secondary, custom_id="vol_down_button")
     async def volume_down(self, interaction: discord.Interaction, button: discord.ui.Button):
-        global volume
-        volume = max(volume - 0.1, 0.0)
-        if current_voice_client and current_voice_client.source:
-            current_voice_client.source.volume = volume
-        await interaction.response.send_message(f"Volume: {int(volume * 100)}%", ephemeral=True)
-        await update_now_playing_message()
+        await volume_down_handler(interaction)
 
 class QueuePagination(discord.ui.View):
-    def __init__(self, ctx, pages):
+    def __init__(self, ctx_or_interaction, pages):
         super().__init__(timeout=60)
-        self.ctx = ctx
+        self.ctx_or_interaction = ctx_or_interaction
         self.pages = pages
         self.page = 0
 
@@ -146,7 +297,7 @@ class QueuePagination(discord.ui.View):
 
     @discord.ui.button(label="⬅️", style=discord.ButtonStyle.secondary, custom_id="queue_prev")
     async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.ctx.author:
+        if interaction.user != (self.ctx_or_interaction.author if hasattr(self.ctx_or_interaction, 'author') else self.ctx_or_interaction.user):
             await interaction.response.send_message("This is not your queue to control.", ephemeral=True)
             return
         if self.page > 0:
@@ -157,7 +308,7 @@ class QueuePagination(discord.ui.View):
 
     @discord.ui.button(label="➡️", style=discord.ButtonStyle.secondary, custom_id="queue_next")
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.ctx.author:
+        if interaction.user != (self.ctx_or_interaction.author if hasattr(self.ctx_or_interaction, 'author') else self.ctx_or_interaction.user):
             await interaction.response.send_message("This is not your queue to control.", ephemeral=True)
             return
         if self.page < len(self.pages) - 1:
@@ -291,68 +442,84 @@ async def play_next(ctx_or_interaction):
         try:
             fut.result()
         except Exception as e:
-            logging.error(f"Error running play_next: {e}")
+            logging.error(f"Error scheduling play_next: {e}")
+
+    if not current_voice_client or not current_voice_client.is_connected():
+        # Connect voice client if not connected
+        channel = None
+        if hasattr(ctx_or_interaction, 'author'):
+            if ctx_or_interaction.author.voice:
+                channel = ctx_or_interaction.author.voice.channel
+        elif hasattr(ctx_or_interaction, 'user'):
+            if ctx_or_interaction.user.voice:
+                channel = ctx_or_interaction.user.voice.channel
+
+        if not channel:
+            await send_response(ctx_or_interaction, "❌ You must be in a voice channel.", ephemeral=True)
+            return
+
+        global disconnect_task, disconnect_timer
+        current_voice_client = await channel.connect()
+        if disconnect_task and not disconnect_task.done():
+            disconnect_task.cancel()
+        disconnect_timer = 0
+        disconnect_task = bot.loop.create_task(auto_disconnect_check())
 
     current_voice_client.play(source, after=after_playing)
 
-    embed = discord.Embed(
-        title="🎶 Now Playing",
-        description=f"[{song['title']}]({song['webpage_url']})",
-        color=discord.Color.blurple()
-    )
-    embed.set_thumbnail(url=song.get('thumbnail', None))
-    embed.add_field(name="Requested by", value=song['requester'].mention if song['requester'] else "Unknown", inline=True)
-    embed.add_field(name="Repeat Mode", value=repeat_mode_to_str(repeat_mode), inline=True)
-    embed.add_field(name="Volume", value=f"{int(volume*100)}%", inline=True)
-    embed.set_footer(text="Use the buttons below to control playback.")
+    # Send or update now playing message
+    if not current_player_message:
+        channel = None
+        if hasattr(ctx_or_interaction, 'channel'):
+            channel = ctx_or_interaction.channel
+        elif hasattr(ctx_or_interaction, 'guild') and hasattr(ctx_or_interaction.guild, 'text_channels'):
+            channel = ctx_or_interaction.guild.text_channels[0]
 
-    if current_player_message is None:
-        if hasattr(ctx_or_interaction, 'send'):
-            current_player_message = await ctx_or_interaction.send(embed=embed, view=MusicControls())
-        else:
-            current_player_message = await ctx_or_interaction.followup.send(embed=embed, view=MusicControls())
-    else:
-        try:
-            await current_player_message.edit(embed=embed, view=MusicControls())
-        except discord.NotFound:
-            if hasattr(ctx_or_interaction, 'send'):
-                current_player_message = await ctx_or_interaction.send(embed=embed, view=MusicControls())
-            else:
-                current_player_message = await ctx_or_interaction.followup.send(embed=embed, view=MusicControls())
+        if channel:
+            embed = discord.Embed(
+                title="🎶 Now Playing",
+                description=f"[{song['title']}]({song['webpage_url']})",
+                color=discord.Color.blurple()
+            )
+            embed.set_thumbnail(url=song.get('thumbnail', None))
+            embed.add_field(name="Requested by", value=song['requester'].mention if song['requester'] else "Unknown", inline=True)
+            embed.add_field(name="Repeat Mode", value=repeat_mode_to_str(repeat_mode), inline=True)
+            embed.add_field(name="Volume", value=f"{int(volume * 100)}%", inline=True)
 
-    if progress_task:
-        progress_task.cancel()
-    progress_task = asyncio.create_task(progress_updater())
+            #global current_player_message - this was casuing errors because it was said somewhere else
+            current_player_message = await channel.send(embed=embed, view=MusicControls())
 
-# Handle adding song to queue and starting playback
+    # Start progress updater
+    global progress_task
+    if not progress_task or progress_task.done():
+        progress_task = bot.loop.create_task(progress_updater())
+
+# Queue and play handler (your existing function, simplified for example)
 async def handle_queue_and_play(ctx_or_interaction, search):
-    global current_voice_client, song_queue, is_playing
+    # Your existing yt-dlp search or direct URL extraction logic here
+
+    ydl_opts = ydl_opts_youtube
+
+    # Determine if search is URL or search term
+    url = None
+    if search.startswith("http"):
+        url = search
 
     info = None
     try:
-        with yt_dlp.YoutubeDL(ydl_opts_youtube) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(search, download=False)
-            if 'entries' in info:
-                info = info['entries'][0]
     except Exception as e:
-        logging.warning(f"YouTube search failed: {e}")
-
-    if not info:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts_soundcloud) as ydl:
-                info = ydl.extract_info(search, download=False)
-                if 'entries' in info:
-                    info = info['entries'][0]
-        except Exception as e:
-            logging.warning(f"SoundCloud search failed: {e}")
-
-    if not info:
-        msg = "❌ No results."
-        if hasattr(ctx_or_interaction, 'send'):
-            await ctx_or_interaction.send(msg)
-        else:
-            await ctx_or_interaction.followup.send(msg)
+        await send_response(ctx_or_interaction, f"Error finding media: {e}", ephemeral=True)
         return
+
+    if not info:
+        await send_response(ctx_or_interaction, "❌ No results.", ephemeral=True)
+        return
+
+    # If multiple entries (playlist or search), take first
+    if 'entries' in info:
+        info = info['entries'][0]
 
     url = info.get('url') or info.get('webpage_url')
     title = info.get('title', 'Unknown Title')
@@ -376,11 +543,9 @@ async def handle_queue_and_play(ctx_or_interaction, search):
     })
 
     queued_msg = f"✅ Queued: **{title}** (requested by {requester.mention if requester else 'unknown'})"
-    if hasattr(ctx_or_interaction, 'send'):
-        await ctx_or_interaction.send(queued_msg)
-    else:
-        await ctx_or_interaction.followup.send(queued_msg)
+    await send_response(ctx_or_interaction, queued_msg)
 
+    global is_playing, current_voice_client, disconnect_task, disconnect_timer
     # Connect voice client if not connected
     if not current_voice_client or not current_voice_client.is_connected():
         channel = None
@@ -392,16 +557,11 @@ async def handle_queue_and_play(ctx_or_interaction, search):
                 channel = ctx_or_interaction.user.voice.channel
 
         if not channel:
-            msg = "❌ You must be in a voice channel."
-            if hasattr(ctx_or_interaction, 'send'):
-                await ctx_or_interaction.send(msg)
-            else:
-                await ctx_or_interaction.followup.send(msg)
+            await send_response(ctx_or_interaction, "❌ You must be in a voice channel.", ephemeral=True)
             return
 
         current_voice_client = await channel.connect()
 
-        global disconnect_task, disconnect_timer
         if disconnect_task and not disconnect_task.done():
             disconnect_task.cancel()
         disconnect_timer = 0
@@ -410,160 +570,93 @@ async def handle_queue_and_play(ctx_or_interaction, search):
     if not is_playing:
         await play_next(ctx_or_interaction)
 
-# Prefix commands
-
+# Prefix commands wrapping unified handlers
 @bot.command()
 async def ping(ctx):
-    await ctx.send("🏓 Pong!")
+    await ping_handler(ctx)
 
 @bot.command()
 async def pause(ctx):
-    if current_voice_client and current_voice_client.is_playing():
-        current_voice_client.pause()
-        await ctx.send("Paused.")
-        await update_now_playing_message()
-    else:
-        await ctx.send("Nothing is playing.")
+    await pause_handler(ctx)
 
 @bot.command()
 async def resume(ctx):
-    if current_voice_client and current_voice_client.is_paused():
-        current_voice_client.resume()
-        await ctx.send("Resumed.")
-        await update_now_playing_message()
-    else:
-        await ctx.send("Nothing is paused.")
+    await resume_handler(ctx)
 
 @bot.command()
 async def skip(ctx):
-    if current_voice_client and current_voice_client.is_playing():
-        current_voice_client.stop()
-        await ctx.send("Skipped.")
-    else:
-        await ctx.send("Nothing is playing.")
+    await skip_handler(ctx)
 
 @bot.command()
 async def stop(ctx):
-    global song_queue, is_playing, current_voice_client, disconnect_task, disconnect_timer, current_player_message, progress_task
+    await stop_handler(ctx)
 
-    song_queue.clear()
-    is_playing = False
+@bot.command()
+async def join(ctx):
+    await join_handler(ctx)
 
-    if current_voice_client:
-        current_voice_client.stop()
-        await current_voice_client.disconnect()
-        current_voice_client = None
-
-    if disconnect_task and not disconnect_task.done():
-        disconnect_task.cancel()
-    disconnect_timer = 0
-
-    if current_player_message:
-        try:
-            await current_player_message.delete()
-        except:
-            pass
-        current_player_message = None
-
-    if progress_task:
-        progress_task.cancel()
-        progress_task = None
-
-    await ctx.send("Stopped and disconnected.")
+@bot.command()
+async def leave(ctx):
+    await leave_handler(ctx)
 
 @bot.command()
 async def queue(ctx):
-    if not song_queue:
-        await ctx.send("The queue is empty.")
-        return
-
-    pages = []
-    per_page = 10
-    for i in range(0, len(song_queue), per_page):
-        page_songs = song_queue[i:i+per_page]
-        desc = ""
-        for j, song in enumerate(page_songs, start=i+1):
-            desc += f"**{j}.** [{song['title']}]({song['webpage_url']}) - requested by {song['requester'].mention if song['requester'] else 'unknown'}\n"
-        pages.append(desc)
-
-    embed = discord.Embed(title=f"Queue (Page 1/{len(pages)})", description=pages[0], color=discord.Color.green())
-    view = QueuePagination(ctx, pages)
-    await ctx.send(embed=embed, view=view)
+    await queue_handler(ctx)
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 async def purge(ctx, amount: int):
-    if amount < 1 or amount > 100:
-        await ctx.send("Please specify an amount between 1 and 100.", delete_after=5)
-        return
-    deleted = await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(f"Deleted {len(deleted)-1} messages.", delete_after=5)
-
-@bot.command()
-async def join(ctx):
-    if ctx.author.voice:
-        channel = ctx.author.voice.channel
-        await channel.connect()
-    else:
-        await ctx.send("You must be in a voice channel.")
-
-@bot.command()
-async def leave(ctx):
-    global current_voice_client
-    if current_voice_client:
-        await current_voice_client.disconnect()
-        current_voice_client = None
-        await ctx.send("Disconnected.")
-    else:
-        await ctx.send("Not connected.")
+    await purge_handler(ctx, amount)
 
 @bot.command()
 async def play(ctx, *, search: str):
-    await handle_queue_and_play(ctx, search)
+    await play_handler(ctx, search)
 
-# Slash commands
-
+# Slash commands wrapping unified handlers
 @bot.tree.command(name="ping", description="Ping the bot", guild=GUILD_OBJ)
 async def slash_ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🏓 Pong!", ephemeral=True)
+    await ping_handler(interaction)
 
 @bot.tree.command(name="pause", description="Pause the current song", guild=GUILD_OBJ)
 async def slash_pause(interaction: discord.Interaction):
-    if current_voice_client and current_voice_client.is_playing():
-        current_voice_client.pause()
-        await interaction.response.send_message("Paused.", ephemeral=True)
-        await update_now_playing_message()
-    else:
-        await interaction.response.send_message("Nothing is playing.", ephemeral=True)
+    await pause_handler(interaction)
 
 @bot.tree.command(name="resume", description="Resume the current song", guild=GUILD_OBJ)
 async def slash_resume(interaction: discord.Interaction):
-    if current_voice_client and current_voice_client.is_paused():
-        current_voice_client.resume()
-        await interaction.response.send_message("Resumed.", ephemeral=True)
-        await update_now_playing_message()
-    else:
-        await interaction.response.send_message("Nothing is paused.", ephemeral=True)
+    await resume_handler(interaction)
 
 @bot.tree.command(name="skip", description="Skip the current song", guild=GUILD_OBJ)
 async def slash_skip(interaction: discord.Interaction):
-    if current_voice_client and current_voice_client.is_playing():
-        current_voice_client.stop()
-        await interaction.response.send_message("Skipped.", ephemeral=True)
-    else:
-        await interaction.response.send_message("Nothing is playing.", ephemeral=True)
+    await skip_handler(interaction)
 
 @bot.tree.command(name="stop", description="Stop playback and disconnect", guild=GUILD_OBJ)
 async def slash_stop(interaction: discord.Interaction):
-    await stop(interaction)
-    await interaction.response.send_message("Stopped and disconnected.", ephemeral=True)
+    await stop_handler(interaction)
+
+@bot.tree.command(name="join", description="Join your voice channel", guild=GUILD_OBJ)
+async def slash_join(interaction: discord.Interaction):
+    await join_handler(interaction)
+
+@bot.tree.command(name="leave", description="Leave the voice channel", guild=GUILD_OBJ)
+async def slash_leave(interaction: discord.Interaction):
+    await leave_handler(interaction)
+
+@bot.tree.command(name="queue", description="Show the music queue", guild=GUILD_OBJ)
+async def slash_queue(interaction: discord.Interaction):
+    await queue_handler(interaction)
+
+@bot.tree.command(name="purge", description="Delete multiple messages", guild=GUILD_OBJ)
+@app_commands.describe(amount="Number of messages to delete (1-100)")
+async def slash_purge(interaction: discord.Interaction, amount: int):
+    await purge_handler(interaction, amount)
 
 @bot.tree.command(name="play", description="Play a song from URL or search", guild=GUILD_OBJ)
 @app_commands.describe(search="YouTube/SoundCloud URL or search term")
 async def slash_play(interaction: discord.Interaction, search: str):
     await interaction.response.defer()
-    await handle_queue_and_play(interaction, search)
+    await play_handler(interaction, search)
 
+# Auto-delete bot commands
 @bot.tree.command(name="autodelete_add", description="Add a bot for auto-delete of its messages", guild=GUILD_OBJ)
 @app_commands.describe(bot_id="The bot's user ID", delay="Delay in seconds before deleting messages")
 async def autodelete_add(interaction: discord.Interaction, bot_id: int, delay: int):
@@ -590,21 +683,9 @@ async def autodelete_remove(interaction: discord.Interaction, bot_id: int):
     else:
         await interaction.response.send_message(f"Bot ID {bot_id} not found in auto-delete tracking.", ephemeral=True)
 
-@bot.tree.command(name="purge", description="Delete multiple messages", guild=GUILD_OBJ)
-@app_commands.describe(amount="Number of messages to delete (1-100)")
-async def slash_purge(interaction: discord.Interaction, amount: int):
-    if not interaction.user.guild_permissions.manage_messages:
-        await interaction.response.send_message("You don't have permission to manage messages.", ephemeral=True)
-        return
-    if amount < 1 or amount > 100:
-        await interaction.response.send_message("Please specify an amount between 1 and 100.", ephemeral=True)
-        return
-    await interaction.response.defer(ephemeral=True)
-    deleted = await interaction.channel.purge(limit=amount + 1)
-    await interaction.followup.send(f"Deleted {len(deleted)-1} messages.", ephemeral=True)
-
 # Run bot
 bot.run(token)
+
 
 
 
