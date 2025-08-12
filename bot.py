@@ -7,6 +7,10 @@ from dotenv import load_dotenv
 from discord.ext import commands
 import asyncio
 from discord import FFmpegPCMAudio, app_commands
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+import re
+from yt_dlp import YoutubeDL
 
 dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
 if not discord.opus.is_loaded():
@@ -24,6 +28,34 @@ load_dotenv()
 token = os.getenv("DISCORD_TOKEN")
 if not token:
     raise ValueError("🚨 DISCORD_TOKEN not found in environment variables.")
+
+spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID")
+spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET")
+
+print(f"✅ ID loaded: {bool(spotify_client_id)}")
+print(f"✅ Secret loaded: {bool(spotify_client_secret)}")
+# print(f"ID: {spotify_client_id}")
+# print(f"Secret: {spotify_client_secret}")
+
+if not spotify_client_id or not spotify_client_secret:
+    raise ValueError("🚨 Spotify credentials missing in environment variables.")
+
+sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+    client_id=spotify_client_id,
+    client_secret=spotify_client_secret
+))
+
+#print(sp.search(q="Never Gonna Give You Up", limit=1))
+
+
+ydl_opts = {'format': 'bestaudio/best', 'quiet': True, 'no_warnings': True, 'default_search': 'ytsearch'}
+
+async def search_and_play_youtube(ctx, query):
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch:{query}", download=False)['entries'][0]
+        url = info['webpage_url']
+
+    await handle_queue_and_play(ctx, url)
 
 # Bot intents
 intents = discord.Intents.default()
@@ -46,6 +78,12 @@ else:
 def save_tracked_bots():
     with open(TRACKED_BOTS_FILE, "w") as f:
         json.dump(tracked_bots, f)
+
+# Global Spotify client
+sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+    client_id=("SPOTIFY_CLIENT_ID"),
+    client_secret=("SPOTIFY_CLIENT_SECRET")
+))
 
 # Music state
 song_queue = []
@@ -221,8 +259,56 @@ async def purge_handler(ctx_or_interaction, amount: int):
     deleted = await ctx_or_interaction.channel.purge(limit=amount + 1)
     await send_response(ctx_or_interaction, f"Deleted {len(deleted)-1} messages.", ephemeral=True)
 
+# async def play_handler(ctx_or_interaction, search: str):
+#     await handle_queue_and_play(ctx_or_interaction, search)
 async def play_handler(ctx_or_interaction, search: str):
+    if "open.spotify.com/track" in search:
+        await handle_spotify_track(ctx_or_interaction, search)
+        return
+
     await handle_queue_and_play(ctx_or_interaction, search)
+
+
+async def handle_spotify_track(ctx, url):
+    # Extract track ID
+    match = re.search(r"track/([a-zA-Z0-9]+)", url)
+    if not match:
+        if hasattr(ctx, "response"):
+            await ctx.response.send_message("❌ Could not extract track ID.", ephemeral=True)
+        else:
+            await ctx.send("❌ Could not extract track ID.")
+        return
+
+    track_id = match.group(1)
+
+    try:
+        track = sp.track(track_id)
+        title = track["name"]
+        artist = track["artists"][0]["name"]
+        query = f"{title} {artist}"
+    except Exception as e:
+        print(e)
+        if hasattr(ctx, "response"):
+            await ctx.response.send_message("⚠️ Failed to retrieve track info.", ephemeral=True)
+        else:
+            await ctx.send("⚠️ Failed to retrieve track info.")
+        return
+
+    # # Notify user what you're searching for
+    # if hasattr(ctx, "response"):
+    #     # Interaction: first response or followup?
+    #     # If already responded, use followup, else response.send_message
+    #     try:
+    #         await ctx.response.send_message(f"🔍 Searching YouTube for: `{query}`")
+    #     except discord.errors.InteractionResponded:
+    #         await ctx.followup.send(f"🔍 Searching YouTube for: `{query}`")
+    # else:
+    #     await ctx.send(f"🔍 Searching YouTube for: `{query}`")
+
+    # await search_and_play_youtube(ctx, query)
+
+
+
 
 # Your existing handle_queue_and_play function here unchanged
 # (Add your pasted function below or import it)
@@ -438,11 +524,11 @@ async def play_next(ctx_or_interaction):
     def after_playing(error):
         if error:
             logging.error(f"Error in after_playing: {error}")
-        fut = asyncio.run_coroutine_threadsafe(play_next(ctx_or_interaction), bot.loop)
-        try:
-            fut.result()
-        except Exception as e:
-            logging.error(f"Error scheduling play_next: {e}")
+
+    # Schedule play_next without blocking
+        asyncio.run_coroutine_threadsafe(play_next(ctx_or_interaction), bot.loop)
+
+
 
     if not current_voice_client or not current_voice_client.is_connected():
         # Connect voice client if not connected
@@ -496,19 +582,14 @@ async def play_next(ctx_or_interaction):
 
 # Queue and play handler (your existing function, simplified for example)
 async def handle_queue_and_play(ctx_or_interaction, search):
-    # Your existing yt-dlp search or direct URL extraction logic here
-
     ydl_opts = ydl_opts_youtube
 
-    # Determine if search is URL or search term
-    url = None
-    if search.startswith("http"):
-        url = search
-
-    info = None
-    try:
+    def blocking_extract():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(search, download=False)
+            return ydl.extract_info(search, download=False)
+
+    try:
+        info = await asyncio.to_thread(blocking_extract)
     except Exception as e:
         await send_response(ctx_or_interaction, f"Error finding media: {e}", ephemeral=True)
         return
@@ -533,6 +614,8 @@ async def handle_queue_and_play(ctx_or_interaction, search):
     elif hasattr(ctx_or_interaction, 'user'):
         requester = ctx_or_interaction.user
 
+    was_queue_empty = len(song_queue) == 0
+
     song_queue.append({
         'url': url,
         'title': title,
@@ -542,10 +625,14 @@ async def handle_queue_and_play(ctx_or_interaction, search):
         'requester': requester,
     })
 
-    queued_msg = f"✅ Queued: **{title}** (requested by {requester.mention if requester else 'unknown'})"
-    await send_response(ctx_or_interaction, queued_msg)
-
     global is_playing, current_voice_client, disconnect_task, disconnect_timer
+
+    if was_queue_empty and (not current_voice_client or not current_voice_client.is_playing()):
+        await send_response(ctx_or_interaction, f"▶️ Now playing: **{title}** (requested by {requester.mention if requester else 'unknown'})")
+        await play_next(ctx_or_interaction)
+    else:
+        await send_response(ctx_or_interaction, f"✅ Queued: **{title}** (requested by {requester.mention if requester else 'unknown'})")
+
     # Connect voice client if not connected
     if not current_voice_client or not current_voice_client.is_connected():
         channel = None
@@ -569,6 +656,7 @@ async def handle_queue_and_play(ctx_or_interaction, search):
 
     if not is_playing:
         await play_next(ctx_or_interaction)
+
 
 # Prefix commands wrapping unified handlers
 @bot.command()
@@ -682,6 +770,8 @@ async def autodelete_remove(interaction: discord.Interaction, bot_id: int):
         await interaction.response.send_message(f"Removed bot ID {bot_id} from auto-delete tracking.", ephemeral=True)
     else:
         await interaction.response.send_message(f"Bot ID {bot_id} not found in auto-delete tracking.", ephemeral=True)
+
+
 
 # Run bot
 bot.run(token)

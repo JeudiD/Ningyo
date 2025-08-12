@@ -14,13 +14,33 @@ Features slash commands like `/ping` and `/purge`.
 2. Run `python watchdog_runner.py` to auto-reload on changes.
 
 ## Requirements
-- py-cord
+- Python 3.10 or higher  
+- discord.py
 - python-dotenv
-- watchdog
+- yt-dlp
+- spotipy
+- FFmpeg installed and added to your system PATH (for streaming audio)  
+- Python's built-in `logging` module (no extra install needed)
+
 
 ## Commands
-- `/ping`: Replies with "Pong!"
-- `/purge`: Deletes a specified number of messages (admin-only)
+- '/join' or 'njoin': Bot joins your current voice channel  
+- '/leave' or 'nleave': Bot leaves the voice channel  
+- '/play [song/URL]' or 'nplay [song/URL]': Plays a song or adds it to the queue  
+- '/pause' or 'npause': Pauses the current playback  
+- '/resume' or 'nresume': Resumes paused playback  
+- '/skip' or 'nskip': Skips the currently playing song  
+- '/stop' or 'nstop': Stops playback and clears the queue  
+- '/queue' or 'nqueue': Shows the current music queue  
+- '/ping' or 'nping': Replies with "Pong!"  
+- '/purge [amount]' or 'npurge [amount]': Deletes a specified number of messages (admin-only)  
+- '/auto-delete add [bot/user]' or 'nauto-delete add [bot/user]': Adds a user/bot to the auto-delete tracking list  
+- '/auto-delete remove [bot/user]' or 'nauto-delete remove [bot/user]': Removes a user/bot from the auto-delete tracking list  
+
+
+## Attribution
+
+If you use or modify this bot, a simple shout-out or mention would be appreciated but is not required. Thanks for supporting my work!
 
 
 
@@ -313,6 +333,7 @@ Features slash commands like `/ping` and `/purge`.
 - Problem:
 Bot was able to join voice channels initially but started joining and immediately leaving afterward. This was due to missing or improperly loaded Opus codec, required by Discord voice to encode/decode audio.
 
+
 - Cause:
 The bot did not have the Opus dynamic library (e.g., libopus.dll) available or properly loaded.
 Without Opus, voice connections become unstable and drop.
@@ -347,3 +368,14 @@ Placing opus.dll in the same folder as your bot script is the simplest way to en
 This fix prevents voice connection issues related to missing Opus codec.
 
 - (PS: Opus is a prebuilt native library, in my experience it was very hard to find an official/trusted (usually because the all the links were broken or gone) one so I hope this helps someone.)
+
+# 55. Voice Session 4006 Error and Fix
+- Problem persisted: bot kept joining and immediately leaving voice channels.
+- Cause: Discord API voice session error 4006 ("session no longer valid") due to some libraries dropping port numbers from VOICE_SERVER_UPDATE - - - payloads.
+- Issue: Discord.py (stable versions) didn’t preserve custom ports in voice server updates, causing voice connection failures.
+- Fix: The patch is available on the master branch of discord.py.
+- Current status: Using the master branch version with the fix applied until the official 2.6 release.
+
+- Note: Master branch may be less stable but includes essential fixes for voice issues.
+- Recommendation: Switch to official 2.6 once it is released.
+
