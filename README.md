@@ -14,13 +14,33 @@ Features slash commands like `/ping` and `/purge`.
 2. Run `python watchdog_runner.py` to auto-reload on changes.
 
 ## Requirements
-- py-cord
+- Python 3.10 or higher  
+- discord.py
 - python-dotenv
-- watchdog
+- yt-dlp
+- spotipy
+- FFmpeg installed and added to your system PATH (for streaming audio)  
+- Python's built-in `logging` module (no extra install needed)
+
 
 ## Commands
-- `/ping`: Replies with "Pong!"
-- `/purge`: Deletes a specified number of messages (admin-only)
+- '/join' or 'njoin': Bot joins your current voice channel  
+- '/leave' or 'nleave': Bot leaves the voice channel  
+- '/play [song/URL]' or 'nplay [song/URL]': Plays a song or adds it to the queue  
+- '/pause' or 'npause': Pauses the current playback  
+- '/resume' or 'nresume': Resumes paused playback  
+- '/skip' or 'nskip': Skips the currently playing song  
+- '/stop' or 'nstop': Stops playback and clears the queue  
+- '/queue' or 'nqueue': Shows the current music queue  
+- '/ping' or 'nping': Replies with "Pong!"  
+- '/purge [amount]' or 'npurge [amount]': Deletes a specified number of messages (admin-only)  
+- '/auto-delete add [bot/user]' or 'nauto-delete add [bot/user]': Adds a user/bot to the auto-delete tracking list  
+- '/auto-delete remove [bot/user]' or 'nauto-delete remove [bot/user]': Removes a user/bot from the auto-delete tracking list  
+
+
+## Attribution
+
+If you use or modify this bot, a simple shout-out or mention would be appreciated but is not required. Thanks for supporting my work!
 
 
 
@@ -312,6 +332,11 @@ Features slash commands like `/ping` and `/purge`.
 # 54 Opus Library Setup & Voice Channel Join Fix
 - Problem:
 Bot was able to join voice channels initially but started joining and immediately leaving afterward. This was due to missing or improperly loaded Opus codec, required by Discord voice to encode/decode audio.
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> main
 - Cause:
 The bot did not have the Opus dynamic library (e.g., libopus.dll) available or properly loaded.
 Without Opus, voice connections become unstable and drop.
@@ -341,30 +366,15 @@ Placing opus.dll in the same folder as your bot script is the simplest way to en
 This fix prevents voice connection issues related to missing Opus codec.
 - (PS: Opus is a prebuilt native library, in my experience it was very hard to find an official/trusted (usually because the all the links were broken or gone) one so I hope this helps someone.)
 
-# 55 Unified Stop Command Handler
-- Created a shared stop_handler(ctx_or_interaction) function to eliminate duplicate logic between stop prefix and slash commands.
-- Ensured consistent bot disconnection and cleanup whether the command is triggered via text or slash.
+- (PS: Opus is a prebuilt native library, in my experience it was very hard to find an official/trusted (usually because the all the links were broken or gone) one so I hope this helps someone.)
 
-# 56 Context-Aware Response Helper
-- Added send_response() to abstract whether to use ctx.send() or interaction.response.send_message() (or followups).
-- Applied this to all relevant bot responses (e.g., stop, play errors) to reduce repeated logic and handle edge cases like InteractionResponded.
+# 55. Voice Session 4006 Error and Fix
+- Problem persisted: bot kept joining and immediately leaving voice channels.
+- Cause: Discord API voice session error 4006 ("session no longer valid") due to some libraries dropping port numbers from VOICE_SERVER_UPDATE - - - payloads.
+- Issue: Discord.py (stable versions) didn’t preserve custom ports in voice server updates, causing voice connection failures.
+- Fix: The patch is available on the master branch of discord.py.
+- Current status: Using the master branch version with the fix applied until the official 2.6 release.
 
-# 57 Fixed Global Declaration Error
-- Resolved SyntaxError caused by global current_player_message being declared after its first use in play_next().
-- Moved all global declarations to the top of affected functions (especially play_next()).
+- Note: Master branch may be less stable but includes essential fixes for voice issues.
+- Recommendation: Switch to official 2.6 once it is released.
 
-# 58 Slash + Prefix Parity for Playback Commands
-- Verified that play, pause, resume, skip, and stop now work seamlessly as both prefix and slash commands.
-- Ensured all commands report success/failure messages using send_response().
-
-# 59 Auto-Delete System Confirmed Working
-- Confirmed on_message event and JSON save/load for tracked bots are intact.
-- Messages from specified bot IDs are still auto-deleted after the configured delay.
-
-# 60 Now Playing Embed Reliability
-- Fixed fallback logic in play_next() to send the Now Playing embed even if the context is missing or voice channel isn’t initialized.
-- Ensured current_player_message is updated and reused appropriately.
-
-# 61 Code Structure + Cleanup
-- Reduced duplicate code, cleaned up logic flow in play_next, handle_queue_and_play, and UI button callbacks.
-- Removed legacy inline code for stop() that was clashing with unified handler.
