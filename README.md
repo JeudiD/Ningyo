@@ -88,3 +88,11 @@ If you use or modify this bot, a simple shout-out or mention would be appreciate
 - Bot now accepts mentions instead of raw IDs for tracking commands.
 - Consistent behavior between prefix and slash commands.
 
+# 14. Daily Meme Feature
+- Bot automatically posts a fresh meme every day in a designated channel.
+- Uses Meme API to fetch random memes; no static images.
+- Posts labeled “Meme of the Day”.
+- Optionally posts a meme immediately when the bot starts.
+- Configuration is hard-coded:
+- Channel ID must be set directly in the code (MEME_CHANNEL_ID).
+- Posting time/interval is fixed in the code and cannot be changed via commands.

@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 from discord.ext import commands
 from discord import app_commands
 import asyncio
+import requests
+from discord.ext import tasks
+import datetime
+from datetime import datetime, timedelta
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -34,6 +38,36 @@ else:
 def save_tracked_bots():
     with open(TRACKED_BOTS_FILE, "w") as f:
         json.dump(tracked_bots, f)
+# --- MEME CONFIG ---
+MEME_CHANNEL_ID = 1030749131469242389  # replace with your channel ID
+
+def get_random_meme():
+    """Fetch a fresh meme from meme-api."""
+    try:
+        response = requests.get("https://meme-api.com/gimme")
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("url")
+    except Exception as e:
+        logging.warning(f"Error fetching meme: {e}")
+    return None
+
+@tasks.loop(hours=24)
+async def daily_meme():
+    """Send a fresh meme once every 24 hours."""
+    channel = bot.get_channel(MEME_CHANNEL_ID)
+    if channel:
+        meme_url = get_random_meme()
+        if meme_url:
+            await channel.send(f"**Meme of the Day 😎**\n{meme_url}")
+
+async def wait_until(hour, minute=0):
+    """Wait until a specific time to start the daily meme loop."""
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target < now:
+        target += timedelta(days=1)
+    await asyncio.sleep((target - now).total_seconds())
 
 # Helpers
 async def send_response(ctx_or_interaction, message, ephemeral=False):
@@ -80,6 +114,19 @@ async def on_ready():
     logging.info(f"✅ Bot is online as {bot.user}")
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="RIDE ON SHOOTING STAR"))
     await bot.tree.sync(guild=GUILD_OBJ)
+
+    # Start the daily meme loop at 12:00 PM server time
+    async def start_meme_loop():
+        await wait_until(12, 0)  # wait until 12:00
+        daily_meme.start()
+
+    bot.loop.create_task(start_meme_loop())
+
+    # Post a meme immediately
+    meme_url = get_random_meme()
+    channel = bot.get_channel(MEME_CHANNEL_ID)
+    if channel and meme_url:
+        await channel.send(f"**Meme of the Day 😎**\n{meme_url}")
 
 @bot.event
 async def on_message(message):
