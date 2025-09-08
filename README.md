@@ -96,3 +96,18 @@ If you use or modify this bot, a simple shout-out or mention would be appreciate
 - Configuration is hard-coded:
 - Channel ID must be set directly in the code (MEME_CHANNEL_ID).
 - Posting time/interval is fixed in the code and cannot be changed via commands.
+
+# 15. Added join/leave greetings
+- Implemented on_member_join and on_member_remove events.
+- Bot posts messages in the designated welcome channel when members join or leave.
+
+# 16. Enabled required intents
+- Set intents.members = True in the code.
+- Enabled SERVER MEMBERS INTENT in the Discord Developer Portal.
+
+# 17. Improved greeting style
+- Upgraded messages to embeds with:
+ - Member mention.
+ - Avatar as thumbnail.
+ - Member count in footer.
+ - Green color for join, red for leave.

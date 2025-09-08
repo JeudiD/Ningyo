@@ -22,10 +22,13 @@ if not token:
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="n", intents=intents)
 
 GUILD_ID = 1030603151033769994
 GUILD_OBJ = discord.Object(id=GUILD_ID)
+
+WELCOME_CHANNEL_ID = 1030723841426722878
 
 # Auto-delete config
 TRACKED_BOTS_FILE = "tracked_bots.json"
@@ -140,6 +143,35 @@ async def on_message(message):
         except Exception:
             pass
     await bot.process_commands(message)
+
+
+#greets joining/leaving
+@bot.event
+async def on_member_join(member):
+    channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if channel:
+        embed = discord.Embed(
+            title="🎉 Welcome!",
+            description=f"Hey {member.mention}, welcome to **{member.guild.name}**!",
+            color=discord.Color.green()
+        )
+        embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+        embed.set_footer(text=f"Member #{len(member.guild.members)} • Glad you’re here!")
+        await channel.send(embed=embed)
+
+@bot.event
+async def on_member_remove(member):
+    channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if channel:
+        embed = discord.Embed(
+            title="👋 Goodbye!",
+            description=f"{member.name} has left the server.",
+            color=discord.Color.red()
+        )
+        embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+        await channel.send(embed=embed)
+
+
 
 # Commands
 @bot.command()
