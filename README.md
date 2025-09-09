@@ -17,6 +17,7 @@ Configured for a personal Discord server, but flexible for deployment elsewhere.
 - discord.py / py-cord
 - python-dotenv
 - Python's built-in logging module
+- feedparser 
 
 ## Commands
 - /ping or !ping – Check if the bot is online. Responds with 🏓 Pong!
@@ -131,3 +132,9 @@ If you use or modify this bot, a simple shout-out or mention would be appreciate
 - Users can click emojis on the embed to assign themselves roles.
 - Role assignments are persistent and stored in role_messages.json.
 - Replaced the old reaction-role system with this cleaner, more manageable structure.
+
+# 21. YouTube tracking added
+- /track_youtube and /remove_youtube to manage tracked channels.
+- New videos automatically detected and posted in the update channel.
+- Embed includes title, thumbnail, snippet, timestamp, and clickable link.
+- Prevents duplicate posts and works continuously in the background.

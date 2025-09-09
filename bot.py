@@ -10,8 +10,10 @@ import requests
 from discord.ext import tasks
 import datetime
 from datetime import datetime, timedelta
+import feedparser
 
 ROLE_DATA_FILE = "role_pairs.json"  # Stores persistent emoji → role pairs
+YOUTUBE_CHANNELS_FILE = "youtube_channels.json"
 
 # Load existing role pairs
 if os.path.isfile(ROLE_DATA_FILE):
@@ -19,6 +21,16 @@ if os.path.isfile(ROLE_DATA_FILE):
         role_pairs = json.load(f)
 else:
     role_pairs = {}  # {emoji: role_id}
+
+# Load or initialize tracked channels
+if os.path.isfile(YOUTUBE_CHANNELS_FILE):
+    with open(YOUTUBE_CHANNELS_FILE, "r") as f:
+        youtube_channels = json.load(f)  # {channel_name: channel_id}
+else:
+    youtube_channels = {}
+
+# Keep track of last posted video per channel
+LAST_VIDEO = {}
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -43,6 +55,9 @@ WELCOME_CHANNEL_ID = 1030723841426722878
 VERIFY_CHANNEL_ID = 1030633381492428800
 VERIFY_MESSAGE_ID = 1030645362966396938
 VERIFY_ROLE_ID = 1030707810750701659
+
+UPDATE_CHANNEL_ID = 1030739544942845982
+CHECK_INTERVAL = 300
 
 # Auto-delete config
 TRACKED_BOTS_FILE = "tracked_bots.json"
@@ -100,6 +115,58 @@ async def send_response(ctx_or_interaction, message, ephemeral=False):
             await ctx_or_interaction.response.send_message(message, ephemeral=ephemeral)
         except discord.InteractionResponded:
             await ctx_or_interaction.followup.send(message, ephemeral=ephemeral)
+
+def save_channels():
+    with open(YOUTUBE_CHANNELS_FILE, "w") as f:
+        json.dump(youtube_channels, f)
+
+async def post_new_videos(bot):
+    await bot.wait_until_ready()
+    channel = bot.get_channel(UPDATE_CHANNEL_ID)
+    
+    while not bot.is_closed():
+        for name, ch_id in youtube_channels.items():
+            feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={ch_id}"
+            feed = feedparser.parse(feed_url)
+            if feed.entries:
+                latest = feed.entries[0]
+                video_id = latest.yt_videoid
+                if LAST_VIDEO.get(ch_id) != video_id:
+                    LAST_VIDEO[ch_id] = video_id
+
+                    # Get snippet from description
+                    snippet = latest.get("summary", "")
+                    if len(snippet) > 200:
+                        snippet = snippet[:200] + "..."
+
+                    video_url = latest.link
+
+                    # 1️⃣ Send raw link for clickable inline preview
+                    await channel.send(f" New video from **{name}**!\n{video_url}")
+
+                    # 2️⃣ Send your custom embed for extra info
+                    embed = discord.Embed(
+                        title=latest.title,
+                        url=video_url,
+                        description=snippet or f"New video from **{name}**!",
+                        color=discord.Color.red(),
+                        timestamp=datetime.strptime(latest.published, "%Y-%m-%dT%H:%M:%S%z") if "published" in latest else None
+                    )
+                    embed.set_author(
+                        name=name,
+                        url=f"https://www.youtube.com/channel/{ch_id}",
+                        icon_url="https://www.youtube.com/s/desktop/fe2icons/favicon_96x96.png"
+                    )
+                    if hasattr(latest, 'media_thumbnail'):
+                        embed.set_thumbnail(url=latest.media_thumbnail[0]['url'])
+                    embed.set_footer(text="YouTube • New Upload")
+
+                    await channel.send(embed=embed)
+
+        await asyncio.sleep(CHECK_INTERVAL)
+
+
+
 
 # Handlers
 async def ping_handler(ctx_or_interaction):
@@ -173,6 +240,9 @@ async def on_ready():
     channel = bot.get_channel(MEME_CHANNEL_ID)
     if channel and meme_url:
         await channel.send(f"**Meme of the Day 😎**\n{meme_url}")
+
+    bot.loop.create_task(post_new_videos(bot))
+
 
 @bot.event
 async def on_message(message):
@@ -321,5 +391,47 @@ async def remove_role(interaction: discord.Interaction, emoji: str):
 )
 async def post_roles(interaction: discord.Interaction, channel: discord.TextChannel, title: str = "🎨 Choose Your Roles"):
     await post_role_message(interaction, channel, title=title)
+
+@bot.tree.command(name="track_youtube", description="Add a YouTube channel to track", guild=GUILD_OBJ)
+@app_commands.describe(
+    name="Name to identify the channel",
+    channel_id="YouTube Channel ID"
+)
+async def track_youtube(interaction: discord.Interaction, name: str, channel_id: str):
+    youtube_channels[name] = channel_id
+    save_channels()
+    await interaction.response.send_message(f"✅ Now tracking **{name}** for new videos.", ephemeral=True)
+
+
+@bot.tree.command(name="remove_youtube", description="Stop tracking a YouTube channel", guild=GUILD_OBJ)
+@app_commands.describe(identifier="The channel name or channel ID to remove")
+async def remove_youtube(interaction: discord.Interaction, identifier: str):
+    # Check admin perms (only you/admins can use this)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You don’t have permission to use this command.", ephemeral=True)
+        return
+
+    removed = None
+
+    # Try removing by name
+    if identifier in youtube_channels:
+        removed = identifier
+        youtube_channels.pop(identifier)
+
+    else:
+        # Try removing by channel_id
+        for name, ch_id in list(youtube_channels.items()):
+            if ch_id == identifier:
+                removed = name
+                youtube_channels.pop(name)
+                break
+
+    if not removed:
+        await interaction.response.send_message(f"❌ No channel found matching `{identifier}`.", ephemeral=True)
+        return
+
+    save_channels()
+    await interaction.response.send_message(f"✅ Removed YouTube channel **{removed}** from tracking list.", ephemeral=True)
+
 
 bot.run(token)
