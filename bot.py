@@ -11,6 +11,15 @@ from discord.ext import tasks
 import datetime
 from datetime import datetime, timedelta
 
+ROLE_DATA_FILE = "role_pairs.json"  # Stores persistent emoji → role pairs
+
+# Load existing role pairs
+if os.path.isfile(ROLE_DATA_FILE):
+    with open(ROLE_DATA_FILE, "r") as f:
+        role_pairs = json.load(f)
+else:
+    role_pairs = {}  # {emoji: role_id}
+
 # Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -24,11 +33,16 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="n", intents=intents)
+bot.role_pairs = role_pairs  # attach to bot for global access
 
 GUILD_ID = 1030603151033769994
 GUILD_OBJ = discord.Object(id=GUILD_ID)
 
 WELCOME_CHANNEL_ID = 1030723841426722878
+
+VERIFY_CHANNEL_ID = 1030633381492428800
+VERIFY_MESSAGE_ID = 1030645362966396938
+VERIFY_ROLE_ID = 1030707810750701659
 
 # Auto-delete config
 TRACKED_BOTS_FILE = "tracked_bots.json"
@@ -41,6 +55,11 @@ else:
 def save_tracked_bots():
     with open(TRACKED_BOTS_FILE, "w") as f:
         json.dump(tracked_bots, f)
+
+def save_role_pairs():
+    with open(ROLE_DATA_FILE, "w") as f:
+        json.dump(bot.role_pairs, f)
+
 # --- MEME CONFIG ---
 MEME_CHANNEL_ID = 1030749131469242389  # replace with your channel ID
 
@@ -111,6 +130,30 @@ async def purge_handler(ctx_or_interaction, amount: int):
     deleted = await ctx_or_interaction.channel.purge(limit=amount + 1)
     await send_response(ctx_or_interaction, f"Deleted {len(deleted)-1} messages.", ephemeral=True)
 
+async def post_role_message(ctx_or_interaction, channel: discord.TextChannel, title="🎨 Choose Your Roles"):
+    """
+    Sends the role-selection embed and adds reactions.
+    Uses the current stored bot.role_pairs.
+    """
+    if not bot.role_pairs:
+        await send_response(ctx_or_interaction, "❌ No roles in the list yet.", ephemeral=True)
+        return
+
+    description = "\n".join([f"{e} – <@&{r}>" for e, r in bot.role_pairs.items()])
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=discord.Color.purple()
+    )
+    message = await channel.send(embed=embed)
+
+    # Add reactions
+    for emoji in bot.role_pairs.keys():
+        await message.add_reaction(emoji)
+
+    await send_response(ctx_or_interaction, "✅ Role message posted successfully!")
+
+
 # Events
 @bot.event
 async def on_ready():
@@ -145,7 +188,7 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-#greets joining/leaving
+# Greets joining/leaving
 @bot.event
 async def on_member_join(member):
     channel = bot.get_channel(WELCOME_CHANNEL_ID)
@@ -171,6 +214,28 @@ async def on_member_remove(member):
         embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
         await channel.send(embed=embed)
 
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    guild = bot.get_guild(payload.guild_id)
+    member = guild.get_member(payload.user_id)
+    if member is None or member.bot:
+        return
+
+    # Verification
+    if payload.channel_id == VERIFY_CHANNEL_ID and payload.message_id == VERIFY_MESSAGE_ID:
+        if str(payload.emoji) == "✅":
+            role = guild.get_role(VERIFY_ROLE_ID)
+            if role and role not in member.roles:
+                await member.add_roles(role)
+                print(f"Gave {role.name} to {member.name}")
+
+    # Reaction roles
+    if str(payload.emoji) in bot.role_pairs:
+        role = guild.get_role(bot.role_pairs[str(payload.emoji)])
+        if role and role not in member.roles:
+            await member.add_roles(role)
+            print(f"Gave {role.name} to {member.name}")
 
 
 # Commands
@@ -201,31 +266,60 @@ async def autodelete_remove(interaction: discord.Interaction, bot_id: int):
     save_tracked_bots()
     await interaction.response.send_message(f"Removed bot {bot_id}", ephemeral=True)
 
+# Terms
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def post_rules(ctx):
+    """Posts the Terms of Service and Community Guidelines in separate embeds."""
+    channel = ctx.guild.get_channel(VERIFY_CHANNEL_ID)
+
+    # Terms of Service Embed
+    tos_embed = discord.Embed(
+        title="📜 Terms of Service",
+        description="[Click here to view the Discord Terms of Service](https://discord.com/terms)",
+        color=discord.Color.blue()
+    )
+    await channel.send(embed=tos_embed)
+
+    # Community Guidelines Embed
+    guidelines_embed = discord.Embed(
+        title="📘 Community Guidelines",
+        description="[Click here to view the Discord Community Guidelines](https://discord.com/guidelines)",
+        color=discord.Color.green()
+    )
+    await channel.send(embed=guidelines_embed)
+
+# -----------------------------
+# Slash commands for managing the role list
+# -----------------------------
+@bot.tree.command(name="add_role", description="Add an emoji → role to the list", guild=GUILD_OBJ)
+@app_commands.describe(
+    emoji="Emoji to react with",
+    role="Role to assign"
+)
+async def add_role(interaction: discord.Interaction, emoji: str, role: discord.Role):
+    bot.role_pairs[emoji] = role.id
+    save_role_pairs()
+    await interaction.response.send_message(f"✅ Added {emoji} → {role.name} to the list.", ephemeral=True)
+
+@bot.tree.command(name="remove_role", description="Remove an emoji → role from the list", guild=GUILD_OBJ)
+@app_commands.describe(
+    emoji="Emoji to remove"
+)
+async def remove_role(interaction: discord.Interaction, emoji: str):
+    if emoji in bot.role_pairs:
+        removed_role_id = bot.role_pairs.pop(emoji)
+        save_role_pairs()
+        await interaction.response.send_message(f"✅ Removed {emoji} from the list.", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ That emoji is not in the list.", ephemeral=True)
+
+@bot.tree.command(name="post_roles", description="Post the current role list as an embed", guild=GUILD_OBJ)
+@app_commands.describe(
+    channel="Channel to post the message in",
+    title="Title of the embed"
+)
+async def post_roles(interaction: discord.Interaction, channel: discord.TextChannel, title: str = "🎨 Choose Your Roles"):
+    await post_role_message(interaction, channel, title=title)
+
 bot.run(token)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

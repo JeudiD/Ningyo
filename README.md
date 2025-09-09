@@ -111,3 +111,23 @@ If you use or modify this bot, a simple shout-out or mention would be appreciate
  - Avatar as thumbnail.
  - Member count in footer.
  - Green color for join, red for leave.
+
+# 18. Verification Reaction
+- Clicking ✅ on the verification message assigns the verification role automatically.
+- Works via the on_raw_reaction_add event.
+- Ensures only non-bot members can receive the role.
+- Logs role assignments to the console for monitoring.
+
+# 19. Terms and Guidelines Posting
+- post_rules command posts Terms of Service and Community Guidelines as separate embeds.
+- Admin-only command.
+
+# 20. Reaction Role System
+- Introduced commands to manage roles via a list of emoji → role pairs.
+- Slash commands:
+    - /add_role → add emoji-role pair to list.
+    - /remove_role → remove emoji-role pair from list.
+    - /post_roles → display current list as an embed.
+- Users can click emojis on the embed to assign themselves roles.
+- Role assignments are persistent and stored in role_messages.json.
+- Replaced the old reaction-role system with this cleaner, more manageable structure.
